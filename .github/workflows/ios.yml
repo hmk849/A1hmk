@@ -3,6 +3,9 @@ name: Build AimForge iOS
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-14
@@ -11,17 +14,76 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Godot
+      - name: Download Godot 4.3
         run: |
-          brew install --cask godot
+          curl -fL \
+            https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_macos.universal.zip \
+            -o godot.zip
+          unzip -q godot.zip -d godot-app
+          GODOT="$(find "$PWD/godot-app" -type f -path '*/Contents/MacOS/Godot' | head -1)"
+          test -n "$GODOT"
+          chmod +x "$GODOT"
+          echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+          "$GODOT" --version
 
-      - name: Locate project
+      - name: Install export templates
         run: |
-          mkdir -p extracted
+          curl -fL \
+            https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz \
+            -o templates.tpz
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/4.3.stable"
+          unzip -q templates.tpz -d templates
+          cp -R templates/templates/. \
+            "$HOME/Library/Application Support/Godot/export_templates/4.3.stable/"
+
+      - name: Extract project
+        run: |
           unzip -o AimForge.zip -d extracted
-          find extracted -name project.godot
+          test -f extracted/AimForge/project.godot
+          mkdir -p build
 
-      - name: Build information
+      - name: Import Godot project
         run: |
-          echo "Project files located."
-          echo "Next step: configure Godot iOS export preset and Xcode build."
+          "$GODOT" --headless --editor \
+            --path extracted/AimForge --import
+
+      - name: Create iOS export preset
+        run: |
+          cat > extracted/AimForge/export_presets.cfg <<'EOF'
+          [preset.0]
+          name="iOS"
+          platform="iOS"
+          runnable=false
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="../build/AimForge.zip"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+          application/app_store_team_id=""
+          application/bundle_identifier="com.example.aimforge"
+          EOF
+
+      - name: Export iOS project
+        run: |
+          "$GODOT" --headless \
+            --path extracted/AimForge \
+            --export-debug "iOS" "$PWD/build/AimForge.zip"
+          test -s build/AimForge.zip
+
+      - name: Save build logs and artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AimForge-build-logs
+          path: |
+            build/
+            extracted/AimForge/export_presets.cfg
+          if-no-files-found: warn
+          retention-days: 7
