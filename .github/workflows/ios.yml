@@ -1,0 +1,27 @@
+name: Build AimForge iOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Godot
+        run: |
+          brew install --cask godot
+
+      - name: Locate project
+        run: |
+          mkdir -p extracted
+          unzip -o AimForge.zip -d extracted
+          find extracted -name project.godot
+
+      - name: Build information
+        run: |
+          echo "Project files located."
+          echo "Next step: configure Godot iOS export preset and Xcode build."
